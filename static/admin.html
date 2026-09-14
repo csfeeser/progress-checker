@@ -1,0 +1,312 @@
+<title>Student Status — Admin</title>
+<style>
+  :root {
+    color-scheme: light;
+    --working: #2563eb;
+    --good: #16a34a;
+    --away: #6b7280;
+    --bg: #f3f4f6;
+    --card: #ffffff;
+    --text: #111827;
+    --muted: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+    padding: 24px 16px 48px;
+  }
+  [hidden] { display: none !important; }
+
+  /* Login screen */
+  #login-view {
+    max-width: 380px;
+    margin: 80px auto 0;
+    background: var(--card);
+    border-radius: 16px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    padding: 32px 24px;
+    text-align: center;
+  }
+  #login-view h1 { font-size: 1.3rem; margin: 0 0 20px; }
+  #login-view input {
+    width: 100%;
+    font-size: 1.1rem;
+    padding: 14px;
+    border-radius: 10px;
+    border: 1px solid #d1d5db;
+    margin-bottom: 16px;
+  }
+  #login-view button {
+    width: 100%;
+    font-size: 1.1rem;
+    font-weight: 600;
+    padding: 14px;
+    border-radius: 10px;
+    border: none;
+    background: var(--working);
+    color: white;
+    cursor: pointer;
+  }
+  .error {
+    color: #b91c1c;
+    margin-bottom: 12px;
+    min-height: 1.2em;
+    font-size: 0.95rem;
+  }
+
+  /* Dashboard */
+  #dashboard { max-width: 720px; margin: 0 auto; }
+  #dashboard h1 { font-size: 1.5rem; margin: 0 0 16px; }
+  #reset-btn {
+    display: block;
+    width: 100%;
+    font-size: 1.05rem;
+    font-weight: 600;
+    padding: 16px;
+    border-radius: 12px;
+    border: none;
+    background: var(--good);
+    color: white;
+    cursor: pointer;
+    margin-bottom: 20px;
+  }
+  #reset-btn:active { opacity: 0.85; }
+  #dashboard-error {
+    color: #b91c1c;
+    margin-bottom: 12px;
+  }
+  #count { font-weight: 600; margin-bottom: 12px; color: var(--muted); }
+  #empty-msg { color: var(--muted); padding: 24px 0; text-align: center; }
+
+  .roster { display: flex; flex-direction: column; gap: 8px; }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--card);
+    border-radius: 10px;
+    padding: 12px 16px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+  .row .emoji { font-size: 1.3rem; }
+  .row .name {
+    flex: 1;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .row .status-label {
+    font-weight: 700;
+    font-size: 0.85rem;
+    padding: 4px 10px;
+    border-radius: 999px;
+    color: white;
+    white-space: nowrap;
+  }
+  .row .status-label.working { background: var(--working); }
+  .row .status-label.good { background: var(--good); }
+  .row .status-label.away { background: var(--away); }
+  .row .remove-btn {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 1.2rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: 4px 8px;
+  }
+  .row .remove-btn:hover { color: #b91c1c; }
+</style>
+
+<div id="login-view">
+  <h1>Admin Login</h1>
+  <div class="error" id="login-error"></div>
+  <input id="password-input" type="password" placeholder="Password" autocomplete="current-password" />
+  <button id="login-btn">Log In</button>
+</div>
+
+<div id="dashboard" hidden>
+  <h1>Student Status — Admin</h1>
+  <button id="reset-btn">Reset Active Students to Working</button>
+  <div class="error" id="dashboard-error"></div>
+  <div id="count"></div>
+  <div id="empty-msg" hidden>No students have joined yet.</div>
+  <div class="roster" id="roster"></div>
+</div>
+
+<script>
+  const STATUS_META = {
+    working: { emoji: "🔵", label: "WORKING" },
+    good: { emoji: "🟢", label: "GOOD TO GO" },
+    away: { emoji: "👻", label: "AWAY" },
+  };
+
+  const loginView = document.getElementById("login-view");
+  const dashboard = document.getElementById("dashboard");
+  const passwordInput = document.getElementById("password-input");
+  const loginBtn = document.getElementById("login-btn");
+  const loginError = document.getElementById("login-error");
+  const dashboardError = document.getElementById("dashboard-error");
+  const resetBtn = document.getElementById("reset-btn");
+  const countEl = document.getElementById("count");
+  const emptyMsg = document.getElementById("empty-msg");
+  const rosterEl = document.getElementById("roster");
+
+  let pollTimer = null;
+
+  function showLogin() {
+    dashboard.hidden = true;
+    loginView.hidden = false;
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+    passwordInput.focus();
+  }
+
+  function showDashboard() {
+    loginView.hidden = true;
+    dashboard.hidden = false;
+    refreshRoster();
+    if (!pollTimer) {
+      pollTimer = setInterval(refreshRoster, 2000);
+    }
+  }
+
+  function renderRoster(list) {
+    dashboardError.textContent = "";
+    countEl.textContent = `${list.length} Student${list.length === 1 ? "" : "s"}`;
+    if (list.length === 0) {
+      emptyMsg.hidden = false;
+      rosterEl.innerHTML = "";
+      return;
+    }
+    emptyMsg.hidden = true;
+    rosterEl.innerHTML = "";
+    for (const student of list) {
+      const meta = STATUS_META[student.status];
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML = `
+        <span class="emoji">${meta.emoji}</span>
+        <span class="name"></span>
+        <span class="status-label ${student.status}">${meta.label}</span>
+        <button class="remove-btn" title="Remove">✕</button>
+      `;
+      row.querySelector(".name").textContent = student.name;
+      row.querySelector(".remove-btn").addEventListener("click", () => removeStudent(student));
+      rosterEl.appendChild(row);
+    }
+  }
+
+  async function refreshRoster() {
+    try {
+      const res = await fetch("/api/admin/students");
+      if (res.status === 401) {
+        showLogin();
+        return;
+      }
+      if (!res.ok) {
+        dashboardError.textContent = "Could not load students.";
+        return;
+      }
+      const data = await res.json();
+      renderRoster(data.students);
+    } catch (e) {
+      dashboardError.textContent = "Could not reach the server.";
+    }
+  }
+
+  async function login() {
+    const password = passwordInput.value;
+    loginError.textContent = "";
+    loginBtn.disabled = true;
+    try {
+      const res = await fetch("/api/admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        loginError.textContent = data.error || "Incorrect password.";
+        loginBtn.disabled = false;
+        return;
+      }
+      passwordInput.value = "";
+      showDashboard();
+    } catch (e) {
+      loginError.textContent = "Could not reach the server.";
+    }
+    loginBtn.disabled = false;
+  }
+
+  async function resetActive() {
+    dashboardError.textContent = "";
+    resetBtn.disabled = true;
+    try {
+      const res = await fetch("/api/admin/reset", { method: "POST" });
+      if (res.status === 401) {
+        showLogin();
+        return;
+      }
+      if (!res.ok) {
+        dashboardError.textContent = "Could not reset students.";
+        resetBtn.disabled = false;
+        return;
+      }
+      const data = await res.json();
+      renderRoster(data.students);
+    } catch (e) {
+      dashboardError.textContent = "Could not reach the server.";
+    }
+    resetBtn.disabled = false;
+  }
+
+  async function removeStudent(student) {
+    if (!confirm(`Remove ${student.name}?`)) return;
+    dashboardError.textContent = "";
+    try {
+      const res = await fetch(`/api/admin/students/${encodeURIComponent(student.id)}`, {
+        method: "DELETE",
+      });
+      if (res.status === 401) {
+        showLogin();
+        return;
+      }
+      if (!res.ok) {
+        dashboardError.textContent = "Could not remove student.";
+        return;
+      }
+      refreshRoster();
+    } catch (e) {
+      dashboardError.textContent = "Could not reach the server.";
+    }
+  }
+
+  loginBtn.addEventListener("click", login);
+  passwordInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") login();
+  });
+  resetBtn.addEventListener("click", resetActive);
+
+  // On load, try the dashboard endpoint directly; if the browser already has
+  // an authenticated admin session cookie this skips the password prompt.
+  (async () => {
+    try {
+      const res = await fetch("/api/admin/students");
+      if (res.ok) {
+        showDashboard();
+      } else {
+        showLogin();
+      }
+    } catch (e) {
+      showLogin();
+    }
+  })();
+</script>

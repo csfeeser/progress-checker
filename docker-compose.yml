@@ -1,0 +1,6 @@
+services:
+  status-board:
+    image: ghcr.io/csfeeser/progress-checker:latest
+    ports:
+      - "2225:2225"
+    restart: unless-stopped
