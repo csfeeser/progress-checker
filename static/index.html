@@ -146,16 +146,42 @@
   const studentNameEl = document.getElementById("student-name");
   const statusBadge = document.getElementById("status-badge");
 
+  let pollTimer = null;
+
   function showNameForm() {
     statusView.hidden = true;
     nameForm.hidden = false;
     nameInput.focus();
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
   }
 
   function showStatusView(student) {
     nameForm.hidden = true;
     statusView.hidden = false;
     render(student);
+    if (!pollTimer) {
+      pollTimer = setInterval(pollMe, 2000);
+    }
+  }
+
+  // Picks up status changes made from elsewhere (e.g. an admin reset, or
+  // the admin removing this student) without requiring a page reload.
+  async function pollMe() {
+    try {
+      const res = await fetch("/api/me");
+      if (res.status === 404) {
+        showNameForm();
+        return;
+      }
+      if (res.ok) {
+        render(await res.json());
+      }
+    } catch (e) {
+      // Transient network hiccup -- just try again on the next tick.
+    }
   }
 
   function render(student) {
